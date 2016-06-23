@@ -1,8 +1,11 @@
 /// <reference path="../typings/tsd.d.ts" />
 
 import * as couchbase from "couchbase";
+import * as fs from "fs";
+import * as path from "path";
+import Promise from "ts-promise";
 
-var wait = require("wait.for");
+//var wait = require("wait.for");
 
 interface IView {
     map: Function | string;
@@ -10,6 +13,17 @@ interface IView {
 }
 interface IDesignDocument {
     views: { [viewName: string]: IView }
+}
+
+interface IChangeset {
+    id: number,
+    run: (pillow: Pillow) => void
+}
+
+interface IPillowState {
+    version: string,
+    lastId: number,
+    lastUpdated: Date
 }
 
 class View {
@@ -110,15 +124,30 @@ class Pillow {
     public bucket: couchbase.Bucket;
     public manager: couchbase.BucketManager;
     public designDocuments: { [designDocumentName: string]: DesignDocument };
+    public changesetPath: string;
 
-    constructor(connString: string, bucketName: string, password?: string) {
+    constructor(changesetPath: string, connString: string, bucketName: string, password?: string) {
         this.cluster = new couchbase.Cluster(connString);
         this.bucket = this.cluster.openBucket(bucketName, password);
         this.bucket.operationTimeout = 120 * 1000;
         this.manager = this.bucket.manager();
         this.designDocuments = {};
+        this.changesetPath = changesetPath;
 
     }
+
+    public readChangesets(): string[] {
+        let files = fs.readdirSync(this.changesetPath);
+        let match = /\.js$/;
+        console.log("Loading changesets...");
+        //keep only .js files
+        files = files.filter((value) => {
+            return match.test(value);
+        });
+
+        return files;
+    }
+
 
     public pushDesignDocument(document: DesignDocument) {
         this.designDocuments[document.name] = document;
@@ -135,8 +164,52 @@ class Pillow {
 
     public upsertDesignDocument(document: DesignDocument) {
         console.log("Saving " + document.name + " ...")
-        wait.forMethod(this.manager, "upsertDesignDocument", document.name, document.toJSON());
+        //wait.forMethod(this.manager, "upsertDesignDocument", document.name, document.toJSON());
 
+    }
+
+    public run(): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+
+            this.bucket.get("_PillowState", (err: couchbase.CouchbaseError, result: any) => {
+                let state: IPillowState;
+                if (err.code == 13) {
+                    state = { version: "1.0", lastId: -1, lastUpdated: null };
+                }
+                else if (err) {
+                    reject(new Error(err.message));
+                    return;
+                }
+                else {
+                    state = result.value;
+                }
+
+                let files = this.readChangesets();
+                let changesets: IChangeset[] = [];
+                let changeset: IChangeset;
+                for (let i = 0; i < files.length; i++) {
+                    let file = files[i];
+                    if (file) {
+                        changeset = require(path.resolve(this.changesetPath + "/" + file));
+                        var id: any = changeset.id;
+                        changeset.id = parseInt(id, 10);
+                        if (!isNaN(changeset.id) && typeof changeset.run === "function") {
+                            changesets[changeset.id] = changeset;
+                        }
+                    }
+                }
+
+                for (let i = state.lastId + 1; i < changesets.length; i++) {
+                    changeset = changesets[i];
+                    if (changeset) {
+                        changeset.run(this);
+                    }
+                }
+
+            });
+
+
+        });
     }
 
 
@@ -145,21 +218,23 @@ class Pillow {
 function main() {
 
 
-    let pillow = new Pillow("couchbase://192.168.6.250", "default");
+    let pillow = new Pillow("./changesets", "couchbase://192.168.6.250", "default");
 
-
-    let view = new View("testView");
-    view.map = function (doc: any, meta: any) {
-        return meta;
-    }
-
-    let doc = new DesignDocument("testdoc");
-    doc.pushView(view);
-    pillow.pushDesignDocument(doc);
-
-    pillow.saveDesign();
-
-
+    pillow.run();
+    /*
+    
+        let view = new View("testView");
+        view.map = function (doc: any, meta: any) {
+            return meta;
+        }
+    
+        let doc = new DesignDocument("testdoc");
+        doc.pushView(view);
+        pillow.pushDesignDocument(doc);
+    
+        pillow.saveDesign();
+    
+    */
 
 
 
@@ -168,5 +243,6 @@ function main() {
 }
 
 
+main();
 
-wait.launchFiber(main);
+//wait.launchFiber(main);
