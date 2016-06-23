@@ -1,0 +1,10 @@
+node_modules
+/nginx
+dist/
+dist
+npm.debug.log
+debug
+/typings
+.DS_Store
+/temp
+/projects
