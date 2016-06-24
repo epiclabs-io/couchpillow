@@ -10,6 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "couchbase": "^2.2.0",
+    "loglevel": "^1.4.1",
     "ts-promise": "^0.3.0",
     "yargs": "^4.7.1"
   },

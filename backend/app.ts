@@ -4,6 +4,7 @@ import * as couchbase from "couchbase";
 import * as fs from "fs";
 import * as path from "path";
 import Promise from "ts-promise";
+import * as loglevel from "loglevel";
 
 //var wait = require("wait.for");
 
@@ -17,6 +18,7 @@ interface IDesignDocument {
 
 interface IChangeset {
     id: number,
+    design: (pillow: Pillow) => void,
     run: (pillow: Pillow) => void
 }
 
@@ -66,6 +68,9 @@ class View {
             obj["reduce"] = this._reduce;
         return obj;
     }
+    public clean() {
+        this.dirty = false;
+    }
 
 }
 
@@ -112,6 +117,12 @@ class DesignDocument {
 
     }
 
+    public clean() {
+        for (let viewName in this.views) {
+            this.views[viewName].clean();
+        }
+    }
+
 
 
 
@@ -124,7 +135,14 @@ class Pillow {
     public bucket: couchbase.Bucket;
     public manager: couchbase.BucketManager;
     public designDocuments: { [designDocumentName: string]: DesignDocument };
+    public documents: { [documentName: string]: any }
     public changesetPath: string;
+
+    public done = new Function();
+    public error = new Function();
+
+    public View = View;
+    public DesignDocument = DesignDocument;
 
     constructor(changesetPath: string, connString: string, bucketName: string, password?: string) {
         this.cluster = new couchbase.Cluster(connString);
@@ -132,6 +150,7 @@ class Pillow {
         this.bucket.operationTimeout = 120 * 1000;
         this.manager = this.bucket.manager();
         this.designDocuments = {};
+        this.documents = {};
         this.changesetPath = changesetPath;
 
     }
@@ -153,19 +172,37 @@ class Pillow {
         this.designDocuments[document.name] = document;
     }
 
-    public saveDesign() {
-        for (let documentName in this.designDocuments) {
-            let document = this.designDocuments[documentName];
-            if (document.dirty) {
-                this.upsertDesignDocument(document)
+    private saveDesign(): Promise<number> {
+
+        return new Promise<number>((resolve, reject) => {
+            var count = 0;
+            if (Object.keys(this.designDocuments).length == 0) {
+                resolve(-1);
+                return;
             }
-        }
-    }
+            var totalChanges: number = 0;
 
-    public upsertDesignDocument(document: DesignDocument) {
-        console.log("Saving " + document.name + " ...")
-        //wait.forMethod(this.manager, "upsertDesignDocument", document.name, document.toJSON());
+            var callback = (err: any, result: any) => {
+                if (err)
+                    reject(err);
+                else {
+                    count--;
+                    if (count == 0)
+                        resolve(totalChanges);
+                }
+            }
 
+            for (let documentName in this.designDocuments) {
+                let document = this.designDocuments[documentName];
+                if (document.dirty) {
+                    count++;
+                    this.manager.upsertDesignDocument(document.name, document.toJSON(), callback);
+                }
+            }
+            totalChanges = count;
+            if (totalChanges == 0)
+                resolve(0);
+        });
     }
 
     public run(): Promise<void> {
@@ -173,7 +210,7 @@ class Pillow {
 
             this.bucket.get("_PillowState", (err: couchbase.CouchbaseError, result: any) => {
                 let state: IPillowState;
-                if (err.code == 13) {
+                if (err && err.code == 13) {
                     state = { version: "1.0", lastId: -1, lastUpdated: null };
                 }
                 else if (err) {
@@ -191,7 +228,7 @@ class Pillow {
                     let file = files[i];
                     if (file) {
                         changeset = require(path.resolve(this.changesetPath + "/" + file));
-                        var id: any = changeset.id;
+                        let id: any = changeset.id;
                         changeset.id = parseInt(id, 10);
                         if (!isNaN(changeset.id) && typeof changeset.run === "function") {
                             changesets[changeset.id] = changeset;
@@ -199,15 +236,116 @@ class Pillow {
                     }
                 }
 
-                for (let i = state.lastId + 1; i < changesets.length; i++) {
-                    changeset = changesets[i];
-                    if (changeset) {
-                        changeset.run(this);
+                let id = state.lastId;
+
+                this.done = () => {
+                    if (id != state.lastId) {
+                        console.log("Saving Design Document changes for changeset #%s ...", id);
                     }
+
+                    this.saveDesign().then((numChanges) => {
+                        if (numChanges > -1) {
+                            console.log("Processed %s Design Document changes", numChanges);
+                        }
+                        id++;
+                        if (id >= changesets.length) {
+                            state.lastId = id - 1;
+                            state.lastUpdated = new Date();
+                            this.bucket.upsert("_PillowState", state, (err: couchbase.CouchbaseError, result: any) => {
+                                if (err) {
+                                    reject(new Error(err.message));
+                                } else {
+                                    resolve(null);
+                                }
+                            });
+                        }
+                        else {
+
+                            console.log("Processing changeset %s", id);
+                            changesets[id].design(this);
+                            changesets[id].run(this);
+
+                        }
+                    }).catch((err) => {
+                        console.log("Error saving design of changeset %s", id);
+                    });
                 }
 
-            });
+                this.error = (err: Error) => {
+                    reject(err);
+                }
 
+                //initialize design 
+
+                for (let i = 0; i <= state.lastId; i++) {
+                    changesets[i].design(this);
+                }
+
+                for (let docName in this.designDocuments) {
+                    this.designDocuments[docName].clean();
+                }
+
+                this.done();
+
+            });
+        });
+    }
+
+    pushDocument(id: string, obj: any | string) {
+
+        if (typeof obj === "string") {
+            obj = JSON.parse(fs.readFileSync(obj, "utf8"));
+        }
+
+        if (typeof obj !== "object")
+            throw new Error("Must provide either a path name to a json file or an object");
+
+        this.documents[id] = obj;
+    }
+
+    pushDocumentWithId(obj: any | string, idKey: string = "id") {
+        if (typeof obj === "string") {
+            obj = JSON.parse(fs.readFileSync(obj, "utf8"));
+        }
+
+        if (typeof obj !== "object")
+            throw new Error("Must provide either a path name to a json file or an object");
+
+        let id = obj[idKey];
+        this.pushDocument(id, obj);
+
+    }
+
+    saveDocuments(): Promise<number> {
+        return new Promise<number>((resolve, reject) => {
+            let count = Object.keys(this.documents).length;
+
+            if (count == 0) {
+                resolve(0);
+                return;
+            }
+
+
+            let upsertCallback = (err: couchbase.CouchbaseError, result: any) => {
+                if (err) {
+                    this.documents = {};
+                    reject(new Error(err.message));
+                    return;
+                }
+                count--;
+                if (count == 0) {
+                    count = Object.keys(this.documents).length;
+                    this.documents = {};
+                    resolve(count);
+                }
+            }
+
+
+            for (let documentName in this.documents) {
+                let doc = this.documents[documentName];
+
+                this.bucket.upsert(documentName, doc, upsertCallback);
+            }
 
         });
     }
@@ -220,7 +358,9 @@ function main() {
 
     let pillow = new Pillow("./changesets", "couchbase://192.168.6.250", "default");
 
-    pillow.run();
+    pillow.run().then(() => {
+        console.log("Pillow finished successfully.");
+    })
     /*
     
         let view = new View("testView");
