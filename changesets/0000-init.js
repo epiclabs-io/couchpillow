@@ -2,7 +2,7 @@ module.exports = {
 
     id: 0,
     design: function (pillow) {
-        
+        console.log("This is changeset 0 design");
         var view = new pillow.View("testView");
         view.map = function (doc, meta) {
             return meta;
@@ -14,7 +14,7 @@ module.exports = {
 
     },
     run: function (pillow) {
-        console.log("This is a changeset!!");
+        console.log("This is changeset 0 run");
 
 
 

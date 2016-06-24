@@ -2,7 +2,7 @@ module.exports = {
 
     id: 1,
     design: function (pillow) {
-        console.log("This is changeset #1");
+        console.log("This is changeset #1 design");
 
 
         var view = pillow.designDocuments["testdoc2"].views["testView"];
@@ -11,8 +11,7 @@ module.exports = {
         }
     },
     run: function (pillow) {
-
-
+        console.log("This is changeset 1 run");
         pillow.done();
 
     }
