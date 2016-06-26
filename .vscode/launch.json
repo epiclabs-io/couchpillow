@@ -5,9 +5,11 @@
 			"name": "Launch",
 			"type": "node",
 			"request": "launch",
-			"program": "${workspaceRoot}/backend/app.ts",
+			"program": "${workspaceRoot}/backend/index.ts",
 			"stopOnEntry": false,
-			"args": [],
+			"args": [
+				"-s", "couchbase://192.168.6.250",
+				"-b","bucket1"],
 			"cwd": "${workspaceRoot}",
 			"preLaunchTask": "build-backend",
 			"runtimeExecutable": null,

@@ -28,7 +28,7 @@ gulp.task('build-backend', [], function() {
                        .pipe(sourcemaps.init())
                        .pipe(ts(tsProject));
 
-    tsResult.dts.pipe(gulp.dest("."));
+    tsResult.dts.pipe(gulp.dest("./dist"));
     return tsResult.js
                     .pipe(sourcemaps.write('.', {includeContent: false, sourceRoot: function(file)
 						{

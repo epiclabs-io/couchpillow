@@ -8,6 +8,8 @@ import * as loglevel from "loglevel";
 import {View} from "./View";
 import {DesignDocument} from "./DesignDocument";
 
+var log = loglevel.getLogger("PILLOW");
+
 interface IChangeset {
     id: number,
     design: (pillow: Pillow) => void,
@@ -31,9 +33,7 @@ export class Pillow {
 
     public done = new Function();
     public error = new Function();
-
-    public View = View;
-    public DesignDocument = DesignDocument;
+    public log:Log;
 
     constructor(changesetPath: string, connString: string, bucketName: string, password?: string) {
         this.cluster = new couchbase.Cluster(connString);
@@ -49,12 +49,12 @@ export class Pillow {
     public readChangesets(): string[] {
         let files = fs.readdirSync(this.changesetPath);
         let match = /\.js$/;
-        console.log("Loading changesets...");
+        log.info("Loading changesets...");
         //keep only .js files
         files = files.filter((value) => {
             return match.test(value);
         });
-
+        log.info("Found %s files.", files.length);
         return files;
     }
 
@@ -131,21 +131,21 @@ export class Pillow {
 
                 this.done = () => {
                     if (id != state.lastId) {
-                        console.log("Saving Design Document changes for changeset #%s ...", id);
+                        log.info("Saving Design Document changes for changeset #%s ...", id);
                     }
 
                     this.saveDesign().then((numChanges) => {
                         if (numChanges > -1) {
-                            console.log("Processed %s Design Document changes", numChanges);
+                            log.info("Processed %s Design Document changes", numChanges);
                         }
 
                         let numdocs = Object.keys(this.documents).length;
                         if (numdocs > 0)
-                            console.log("Saving %s documents for changeset %s", numdocs, id);
+                            log.info("Saving %s documents for changeset %s", numdocs, id);
 
                         this.saveDocuments().then((numdocs) => {
                             if (numdocs > 0)
-                                console.log("Saved %s documents for changeset %s", numdocs, id);
+                                log.info("Saved %s documents for changeset %s", numdocs, id);
 
                             id++;
                             if (id >= changesets.length) {
@@ -161,17 +161,19 @@ export class Pillow {
                             }
                             else {
 
-                                console.log("Processing changeset %s", id);
+                                log.info("Processing changeset %s", id);
+                                this.log=loglevel.getLogger("CHANGESET" + id + "-DESIGN");
                                 changesets[id].design(this);
+                                this.log=loglevel.getLogger("CHANGESET" + id + "-RUN");
                                 changesets[id].run(this);
 
                             }
                         }).catch((err) => {
-                            console.log("Error saving documents of changeset %s", id);
+                            log.error("Error saving documents of changeset %s", id);
                         });
 
                     }).catch((err) => {
-                        console.log("Error saving design of changeset %s", id);
+                        log.error("Error saving design of changeset %s", id);
                     });
                 }
 
@@ -182,6 +184,7 @@ export class Pillow {
                 //initialize design 
 
                 for (let i = 0; i <= state.lastId; i++) {
+                    this.log=loglevel.getLogger("CHANGESET" + i + "-DESIGN");
                     changesets[i].design(this);
                 }
 
@@ -252,6 +255,14 @@ export class Pillow {
             }
 
         });
+    }
+    
+    public createView(name: string, map?: Function | string, reduce?: Function | string): View{
+        return new View(name,map,reduce);
+    }
+    
+    public createDesignDocument(name: string):DesignDocument{
+        return new DesignDocument(name);
     }
 
 

@@ -13,6 +13,9 @@
     },
     "loglevel/loglevel.d.ts": {
       "commit": "308bdc83738955e8fe6fc87c3838cd2d69c76b4c"
+    },
+    "yargs/yargs.d.ts": {
+      "commit": "993f83fe84ba1381d006772dc3343e1b8d5304f3"
     }
   }
 }
