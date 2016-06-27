@@ -37,7 +37,7 @@ function main() {
         log.info("Pillow finished successfully.");
         process.exit(0);
     }).catch((err) => {
-        log.error("Error: " + err.message);
+        log.error("Error running Pillow. Execution aborted. Error: " + err.message);
         process.exit(1);
     });
 

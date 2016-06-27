@@ -1,5 +1,5 @@
 
-import {View} from "./View.ts";
+import {View} from "./View";
 
 export class DesignDocument {
     public views: { [viewName: string]: View }
@@ -49,6 +49,17 @@ export class DesignDocument {
             this.views[viewName].clean();
         }
         this.dirty_=false;
+    }
+
+    public fromJSON(json:any){
+        this.views={};
+        let jviews = json.views || json;
+        for(let viewName in jviews){
+            let jview = jviews[viewName];
+            this.views[viewName] = new View(viewName,jview.map, jview.reduce);
+        }
+
+        return this;
     }
 
 

@@ -33,7 +33,7 @@ export class Pillow {
 
     public done = new Function();
     public error = new Function();
-    public log:Log;
+    public log: Log;
 
     constructor(changesetPath: string, connString: string, bucketName: string, password?: string) {
         this.cluster = new couchbase.Cluster(connString);
@@ -87,6 +87,7 @@ export class Pillow {
                 let document = this.designDocuments[documentName];
                 if (document.dirty) {
                     count++;
+                    log.info("Saving design document '%s'...",document.name);
                     this.manager.upsertDesignDocument(document.name, document.toJSON(), callback);
                 }
             }
@@ -162,29 +163,52 @@ export class Pillow {
                             else {
 
                                 log.info("Processing changeset %s", id);
-                                this.log=loglevel.getLogger("CHANGESET" + id + "-DESIGN");
-                                changesets[id].design(this);
-                                this.log=loglevel.getLogger("CHANGESET" + id + "-RUN");
-                                changesets[id].run(this);
+                                this.log = loglevel.getLogger("CHANGESET" + id + "-DESIGN");
+                                try {
+                                    changesets[id].design(this);
+                                }
+                                catch (e) {
+                                    reject(new Error("Error executing design() function of changeset " + id));
+                                    if (e instanceof Error) {
+                                        log.error("Stack trace:");
+                                        log.error("\n" + (e as Error).stack);
+                                    }
+                                }
+                                this.log = loglevel.getLogger("CHANGESET" + id + "-RUN");
+                                try {
+                                    changesets[id].run(this);
+                                }
+                                catch (e) {
+                                    reject(new Error("Error executing run() function of changeset " + id));
+                                    if (e instanceof Error) {
+                                        log.error("Stack trace:");
+                                        log.error("\n" + (e as Error).stack);
+                                    }
+                                }
 
                             }
                         }).catch((err) => {
-                            log.error("Error saving documents of changeset %s", id);
+                            log.error("Error saving documents of changeset %s. %s", id, err.message);
+                            reject(err);
                         });
 
                     }).catch((err) => {
-                        log.error("Error saving design of changeset %s", id);
+                        log.error("Error saving design of changeset %s. %s", id, err.message);
+                        reject(err);
                     });
                 }
 
-                this.error = (err: Error) => {
-                    reject(err);
+                this.error = (err: Error | string) => {
+                    if (err instanceof Error)
+                        reject(err);
+                    else
+                        reject(new Error(err));
                 }
 
                 //initialize design 
 
                 for (let i = 0; i <= state.lastId; i++) {
-                    this.log=loglevel.getLogger("CHANGESET" + i + "-DESIGN");
+                    this.log = loglevel.getLogger("CHANGESET" + i + "-DESIGN");
                     changesets[i].design(this);
                 }
 
@@ -250,19 +274,23 @@ export class Pillow {
 
             for (let documentName in this.documents) {
                 let doc = this.documents[documentName];
-
+                log.info("Saving document '%s'...", documentName);
                 this.bucket.upsert(documentName, doc, upsertCallback);
             }
 
         });
     }
-    
-    public createView(name: string, map?: Function | string, reduce?: Function | string): View{
-        return new View(name,map,reduce);
+
+    public createView(name: string, map?: Function | string, reduce?: Function | string): View {
+        return new View(name, map, reduce);
     }
-    
-    public createDesignDocument(name: string):DesignDocument{
+
+    public createDesignDocument(name: string): DesignDocument {
         return new DesignDocument(name);
+    }
+
+    public importDesignDocument(name: string, json: any) {
+        this.pushDesignDocument(this.createDesignDocument(name).fromJSON(json));
     }
 
 

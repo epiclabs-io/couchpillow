@@ -9,7 +9,7 @@
 			"stopOnEntry": false,
 			"args": [
 				"-s", "couchbase://192.168.6.250",
-				"-b","bucket1"],
+				"-b","prip-pripdevef41851"],
 			"cwd": "${workspaceRoot}",
 			"preLaunchTask": "build-backend",
 			"runtimeExecutable": null,
