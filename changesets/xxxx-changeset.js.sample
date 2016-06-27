@@ -1,0 +1,104 @@
+
+
+// define a design document as a variable
+var design1 = {
+
+    colorFilter: {
+        map: function (doc, meta) {
+            if (doc.color === 'red') {
+                emit(doc);
+            }
+        }
+    }
+
+}
+
+
+
+module.exports = {
+
+    id: 1, // indicate here the changeset id order. Must be unique.
+    design: function (pillow) {
+        //this function is synchronous. Will be called to build a design
+
+        pillow.log.info("Changeset 1 design!!"); //log something to the console
+
+
+        // How to create a design document programatically:
+        var doc = pillow.createDesignDocument("test_design");
+        var view = pillow.createView("myview");
+		
+		//define a map function
+        view.map = function (doc, meta) {
+            if (doc.shape === 'square') {
+                emit(doc);
+            }
+        }
+		
+		//define a reduce function
+		view.reduce = function (keys, values, rereduce) {
+            return values.filter(function (e, i, arr) {
+                return arr.lastIndexOf(e) === i;
+            });
+        }
+
+		// add the view to the design document
+        doc.pushView(view);
+		
+        // add the document to the bucket
+		// All changes are collected and actually pushed to the server all at once
+		// after control returns to Pillow.
+		pillow.pushDesignDocument(doc);
+
+        //How to create design documents from JSON.
+        pillow.importDesignDocument("design1", design1);
+		
+		
+		//Retrieving a Design Document and View from a previous changeset:
+		
+		var doc1 = pillow.designDocuments["doc3"].views["summarize"];
+
+		//modify view's function in this changeset
+		view1.map = function (doc, meta) {
+            if (doc.length > 100 ) {
+                emit(doc);
+            }
+        }
+		
+		
+    },
+    run: function (pillow) {
+        //this function is asynchronous. Call pillow.done() when you're finished
+        //call pillow.error(Error) in case there are issues.
+        pillow.log.info("Adding initial documents...");
+
+        //from file
+		pillow.pushDocumentWithId(__dirname + "/sample-data/data.json"); //assumes the document has an "id" property
+		pillow.pushDocumentWithId(__dirname + "/sample-data/data2.json", "key"); //the document name is in the "key" property
+		
+		//embedded
+		pillow.pushDocument("exampleDocument", {value:"this is an example"}) //embedded
+		pillow.pushDocumentWithId({id:"testDoc", color:"green"}); //embedded containing an id as part of the document.
+		
+		//For advanced changes, you can get direct Couchbase access using these Pillow properties:
+		// pillow.bucket -- http://docs.couchbase.com/sdk-api/couchbase-node-client-2.1.4/Bucket.html
+		// pillow.manager -- http://docs.couchbase.com/sdk-api/couchbase-node-client-2.1.4/BucketManager.html
+		// pillow.cluster -- http://docs.couchbase.com/sdk-api/couchbase-node-client-2.1.4/Cluster.html
+		
+		
+		pillow.bucket.get("doc1",(err , result) => {
+			if(err) {
+				pillow.log.error("There was an error reading doc1!!");
+				pillow.error(err);
+			}
+			else {
+				
+				pillow.log.info("The color is " + result.value.color);
+			    pillow.done(); //notify Pillow we're finished. Don't forget this call or Pillow will never finish
+
+			}
+		
+		});
+	
+    }
+}
